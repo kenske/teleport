@@ -43,6 +43,7 @@ func main() {
 		&common.BotsCommand{},
 		&common.InventoryCommand{},
 		&common.RecordingsCommand{},
+		&common.ProxyCommand{},
 	}
 	common.Run(commands)
 }
