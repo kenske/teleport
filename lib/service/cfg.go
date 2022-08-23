@@ -281,7 +281,7 @@ func (cfg *Config) AuthServerAddresses() []utils.NetAddr {
 		return []utils.NetAddr{cfg.AuthServer}
 	}
 
-	return cfg.AuthServerAddresses()
+	return cfg.AuthServers
 }
 
 func (cfg *Config) SetAuthServerAddresses(addrs []utils.NetAddr) {
