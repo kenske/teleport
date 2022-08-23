@@ -172,12 +172,12 @@ func (p *ProxySuite) addNodeToLeafCluster(t *testing.T, tunnelNodeHostname strin
 		tconf.Log = utils.NewLoggerForTests()
 		tconf.Hostname = tunnelNodeHostname
 		tconf.SetToken("token")
-		tconf.AuthServers = []utils.NetAddr{
+		tconf.SetAuthServerAddresses([]utils.NetAddr{
 			{
 				AddrNetwork: "tcp",
 				Addr:        p.leaf.Web,
 			},
-		}
+		})
 		tconf.Auth.Enabled = false
 		tconf.Proxy.Enabled = false
 		tconf.SSH.Enabled = true
@@ -500,12 +500,12 @@ func makeNodeConfig(nodeName, authAddr string) *service.Config {
 	nodeConfig := service.MakeDefaultConfig()
 	nodeConfig.Hostname = nodeName
 	nodeConfig.SetToken("token")
-	nodeConfig.AuthServers = []utils.NetAddr{
+	nodeConfig.SetAuthServerAddresses([]utils.NetAddr{
 		{
 			AddrNetwork: "tcp",
 			Addr:        authAddr,
 		},
-	}
+	})
 	nodeConfig.Auth.Enabled = false
 	nodeConfig.Proxy.Enabled = false
 	nodeConfig.SSH.Enabled = true

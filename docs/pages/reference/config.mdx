@@ -65,8 +65,8 @@ By default, it is stored in `/etc/teleport.yaml`.
 ```yaml
 # By default, this file should be stored in /etc/teleport.yaml
 
-# Configuration file version. The current version is "v2".
-version: v2
+# Configuration file version. The current version is "v3".
+version: v3
 
 # This section of the configuration file applies to all teleport
 # services.
@@ -83,7 +83,7 @@ teleport:
     # PID file for Teleport process
     #pid_file: /var/run/teleport.pid
 
-    # The invitation token or an absolute path to a file containing the token used 
+    # The invitation token or an absolute path to a file containing the token used
     # to join a cluster. It is not used on subsequent starts.
     # If using a file, it only needs to exist when teleport is first ran.
     #
@@ -131,11 +131,13 @@ teleport:
     # Auth Server address and port to connect to. If you enable the Teleport
     # Auth Server to run in High Availability configuration, the address should
     # point to a Load Balancer.
-    # If adding a node located behind NAT, use the Proxy URL. e.g.
-    #  auth_servers:
-    #     - teleport-proxy.example.com:443
-    auth_servers:
-        - 10.1.0.5:3025
+    # If adding a node located behind NAT, specify `proxy_servers` instead
+    auth_server: 10.1.0.5:3025
+
+    # Proxy Server address and port to connect to. If you enable the Teleport
+    # Proxy Server to run in High Availability configuration, the address should
+    # point to a Load Balancer.
+    proxy_address: teleport-proxy.example.com:443
 
     # cache:
     #  # The cache is enabled by default, it can be disabled with this flag
@@ -203,7 +205,7 @@ teleport:
         # set `journal` to `WAL` and `sync` to `NORMAL`, but only when using a filesystem
         # that supports locks (see https://www.sqlite.org/pragma.html#pragma_journal_mode).
         #journal: DELETE
-        
+
         # DynamoDB-specific section:
 
         # continuous_backups is used to enable continuous backups.

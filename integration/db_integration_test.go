@@ -1104,12 +1104,12 @@ func setupDatabaseTest(t *testing.T, options ...testOptionFunc) *databasePack {
 	rdConf := service.MakeDefaultConfig()
 	rdConf.DataDir = t.TempDir()
 	rdConf.SetToken("static-token-value")
-	rdConf.AuthServers = []utils.NetAddr{
+	rdConf.SetAuthServerAddresses([]utils.NetAddr{
 		{
 			AddrNetwork: "tcp",
 			Addr:        p.root.cluster.Web,
 		},
-	}
+	})
 	rdConf.Databases.Enabled = true
 	rdConf.Databases.Databases = []service.Database{
 		p.root.postgresService,
@@ -1142,12 +1142,12 @@ func setupDatabaseTest(t *testing.T, options ...testOptionFunc) *databasePack {
 	ldConf := service.MakeDefaultConfig()
 	ldConf.DataDir = t.TempDir()
 	ldConf.SetToken("static-token-value")
-	ldConf.AuthServers = []utils.NetAddr{
+	ldConf.SetAuthServerAddresses([]utils.NetAddr{
 		{
 			AddrNetwork: "tcp",
 			Addr:        p.leaf.cluster.Web,
 		},
-	}
+	})
 	ldConf.Databases.Enabled = true
 	ldConf.Databases.Databases = []service.Database{
 		p.leaf.postgresService,
@@ -1305,12 +1305,12 @@ func (p *databasePack) startRootDatabaseAgent(t *testing.T, params databaseAgent
 	conf.DataDir = t.TempDir()
 	conf.SetToken("static-token-value")
 	conf.DiagnosticAddr = *utils.MustParseAddr(helpers.NewListener(t, service.ListenerDiagnostic, &conf.FileDescriptors))
-	conf.AuthServers = []utils.NetAddr{
+	conf.SetAuthServerAddresses([]utils.NetAddr{
 		{
 			AddrNetwork: "tcp",
 			Addr:        p.root.cluster.Web,
 		},
-	}
+	})
 	conf.Clock = p.clock
 	conf.Databases.Enabled = true
 	conf.Databases.Databases = params.databases

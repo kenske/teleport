@@ -68,6 +68,8 @@ type CommandLineFlags struct {
 	NodeName string
 	// --auth-server flag
 	AuthServerAddr []string
+	// --proxy-address flag
+	ProxyAddr string
 	// --token flag
 	AuthToken string
 	// CAPins are the SKPI hashes of the CAs used to verify the Auth Server.
@@ -254,7 +256,7 @@ func ApplyFileConfig(fc *FileConfig, cfg *service.Config) error {
 
 	// config file has auth servers in there?
 	if len(fc.AuthServers) > 0 {
-		cfg.AuthServers = make([]utils.NetAddr, 0, len(fc.AuthServers))
+		cfg.SetAuthServerAddresses(make([]utils.NetAddr, 0, len(fc.AuthServers)))
 		for _, as := range fc.AuthServers {
 			addr, err := utils.ParseHostPortAddr(as, defaults.AuthListenPort)
 			if err != nil {
@@ -264,7 +266,7 @@ func ApplyFileConfig(fc *FileConfig, cfg *service.Config) error {
 			if err != nil {
 				return trace.Errorf("cannot parse auth server address: '%v'", as)
 			}
-			cfg.AuthServers = append(cfg.AuthServers, *addr)
+			cfg.SetAuthServerAddresses(append(cfg.AuthServerAddresses(), *addr))
 		}
 	}
 
@@ -539,7 +541,7 @@ func applyAuthConfig(fc *FileConfig, cfg *service.Config) error {
 			return trace.Wrap(err)
 		}
 		cfg.Auth.ListenAddr = *addr
-		cfg.AuthServers = append(cfg.AuthServers, *addr)
+		cfg.SetAuthServerAddresses(append(cfg.AuthServerAddresses(), *addr))
 	}
 	for _, t := range fc.Auth.ReverseTunnels {
 		tun, err := t.ConvertAndValidate()
@@ -855,8 +857,9 @@ func applyProxyConfig(fc *FileConfig, cfg *service.Config) error {
 	case legacyKube && newKube:
 		return trace.BadParameter("proxy_service should either set kube_listen_addr/kube_public_addr or kubernetes.enabled, not both; keep kubernetes.enabled if you don't enable kubernetes_service, or keep kube_listen_addr otherwise")
 	case !legacyKube && !newKube:
-		if fc.Version == defaults.TeleportConfigVersionV2 {
-			// Always enable kube service if using config V2 (TLS routing is supported)
+		switch fc.Version {
+		case defaults.TeleportConfigVersionV2, defaults.TeleportConfigVersionV3:
+			// Always enable kube service if using config v2 onwards (TLS routing is supported)
 			cfg.Proxy.Kube.Enabled = true
 		}
 	}
@@ -953,8 +956,9 @@ func getPostgresDefaultPort(cfg *service.Config) int {
 }
 
 func applyDefaultProxyListenerAddresses(cfg *service.Config) {
-	if cfg.Version == defaults.TeleportConfigVersionV2 {
-		// For v2 configuration if an address is not provided don't fallback to the default values.
+	switch cfg.Version {
+	case defaults.TeleportConfigVersionV2, defaults.TeleportConfigVersionV3:
+		// From v2 onwards. if an address is not provided don't fall back to the default values.
 		return
 	}
 
@@ -1949,14 +1953,28 @@ func Configure(clf *CommandLineFlags, cfg *service.Config) error {
 			log.Warnf("not starting the local auth service. --auth-server flag tells to connect to another auth server")
 			cfg.Auth.Enabled = false
 		}
-		cfg.AuthServers = make([]utils.NetAddr, 0, len(clf.AuthServerAddr))
+		cfg.SetAuthServerAddresses(make([]utils.NetAddr, 0, len(clf.AuthServerAddr)))
 		for _, as := range clf.AuthServerAddr {
 			addr, err := utils.ParseHostPortAddr(as, defaults.AuthListenPort)
 			if err != nil {
 				return trace.BadParameter("cannot parse auth server address: '%v'", as)
 			}
-			cfg.AuthServers = append(cfg.AuthServers, *addr)
+			cfg.SetAuthServerAddresses(append(cfg.AuthServerAddresses(), *addr))
 		}
+	}
+
+	if clf.ProxyAddr != "" {
+		if cfg.Auth.Enabled {
+			log.Warnf("not starting the local auth service. --proxy-address flag tells to connect to another auth server")
+			cfg.Auth.Enabled = false
+		}
+
+		addr, err := utils.ParseHostPortAddr(clf.ProxyAddr, defaults.AuthListenPort)
+		if err != nil {
+			return trace.BadParameter("cannot parse proxy address: '%v'", clf.ProxyAddr)
+		}
+
+		cfg.ProxyAddress = *addr
 	}
 
 	// apply --name flag:
@@ -2003,8 +2021,8 @@ func Configure(clf *CommandLineFlags, cfg *service.Config) error {
 	}
 
 	// auth_servers not configured, but the 'auth' is enabled (auth is on localhost)?
-	if len(cfg.AuthServers) == 0 && cfg.Auth.Enabled {
-		cfg.AuthServers = append(cfg.AuthServers, cfg.Auth.ListenAddr)
+	if len(cfg.AuthServerAddresses()) == 0 && cfg.Auth.Enabled {
+		cfg.SetAuthServerAddresses(append(cfg.AuthServerAddresses(), cfg.Auth.ListenAddr))
 	}
 
 	// add data_dir to the backend config:

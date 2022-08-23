@@ -793,7 +793,17 @@ const (
 	TeleportConfigVersionV1 string = "v1"
 	// TeleportConfigVersionV2 is the teleport proxy configuration v2 version.
 	TeleportConfigVersionV2 string = "v2"
+	// TeleportConfigVersionV3 is the teleport proxy configuration v3 version.
+	TeleportConfigVersionV3 string = "v3"
 )
+
+// TeleportVersions is an exported slice of the allowed versions in the config file,
+//for convenience (looping through, etc)
+var TeleportVersions = []string{
+	TeleportConfigVersionV1,
+	TeleportConfigVersionV2,
+	TeleportConfigVersionV3,
+}
 
 // Default values for tsh and tctl commands.
 const (

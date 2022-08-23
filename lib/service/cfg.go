@@ -90,10 +90,18 @@ type Config struct {
 	// JoinMethod is the method the instance will use to join the auth server
 	JoinMethod types.JoinMethod
 
+	// v1, v2 -
 	// AuthServers is a list of auth servers, proxies and peer auth servers to
 	// connect to. Yes, this is not just auth servers, the field name is
 	// misleading.
 	AuthServers []utils.NetAddr
+
+	// v3
+	// AuthServer is the address of the auth server
+	AuthServer utils.NetAddr
+
+	// ProxyAddress is the address of the proxy
+	ProxyAddress utils.NetAddr
 
 	// Identities is an optional list of pre-generated key pairs
 	// for teleport roles, this is helpful when server is preconfigured
@@ -268,6 +276,24 @@ type Config struct {
 	token string
 }
 
+func (cfg *Config) AuthServerAddresses() []utils.NetAddr {
+	if cfg.Version == defaults.TeleportConfigVersionV3 {
+		return []utils.NetAddr{cfg.AuthServer}
+	}
+
+	return cfg.AuthServerAddresses()
+}
+
+func (cfg *Config) SetAuthServerAddresses(addrs []utils.NetAddr) {
+	if cfg.Version == defaults.TeleportConfigVersionV3 {
+		cfg.AuthServer = addrs[0]
+
+		return
+	}
+
+	cfg.AuthServers = addrs
+}
+
 // Token returns token needed to join the auth server
 //
 // If the value stored points to a file, it will attempt to read the token value from the file
@@ -326,7 +352,7 @@ func (cfg *Config) RoleConfig() RoleConfig {
 		DataDir:     cfg.DataDir,
 		HostUUID:    cfg.HostUUID,
 		HostName:    cfg.Hostname,
-		AuthServers: cfg.AuthServers,
+		AuthServers: cfg.AuthServerAddresses(),
 		Auth:        cfg.Auth,
 		Console:     cfg.Console,
 	}

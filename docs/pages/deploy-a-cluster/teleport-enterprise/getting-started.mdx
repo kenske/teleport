@@ -91,10 +91,11 @@ $ sudo systemctl enable teleport
 Save the following configuration file as `/etc/teleport.yaml` on the *auth.example.com*:
 
 ```yaml
+version: v3
 teleport:
   nodename: auth.example.com
   auth_token: dogs-are-much-nicer-than-cats
-  auth_servers: [ "localhost:3025" ]
+  auth_server: localhost:3025
 
 proxy_service:
   # enable the proxy service
@@ -141,11 +142,12 @@ Copy the CA pin from the output of `tctl status`. On `node.example.com` save the
 and use the CA pin you copied as the value of `ca_pin`.
 
 ```yaml
+version: v3
 teleport:
   nodename: node.example.com
   auth_token: dogs-are-much-nicer-than-cats
   # you can also use auth server's IP, i.e. "10.1.1.10:3025"
-  auth_servers: [ "auth.example.com:3025" ]
+  auth_server: auth.example.com:3025
   # Set the ca_pin value so it can verify the Teleport server
   ca_pin: sha256:58b1c5cb8885d84ce08f3e...
 

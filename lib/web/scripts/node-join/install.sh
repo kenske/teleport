@@ -414,12 +414,12 @@ install_teleport_app_config() {
     log "Writing Teleport app service config to ${TELEPORT_CONFIG_PATH}"
     CA_PINS_CONFIG=$(get_yaml_list "ca_pin" "${CA_PIN_HASHES}" "  ")
     cat << EOF > ${TELEPORT_CONFIG_PATH}
+version: v3
 teleport:
   nodename: ${NODENAME}
   auth_token: ${JOIN_TOKEN}
 ${CA_PINS_CONFIG}
-  auth_servers:
-  - ${TARGET_HOSTNAME}:${TARGET_PORT}
+  auth_server: ${TARGET_HOSTNAME}:${TARGET_PORT}
   log:
     output: stderr
     severity: INFO

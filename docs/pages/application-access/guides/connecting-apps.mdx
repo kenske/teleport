@@ -133,6 +133,7 @@ Teleport proxy server.
 Example `teleport.yaml` configuration:
 
 ```yaml
+version: v3
 teleport:
   # Data directory for the Application Proxy service. If running on the same
   # node as Auth/Proxy service, make sure to use different data directories.
@@ -143,8 +144,7 @@ teleport:
   # Proxy address to connect to. Note that it has to be the proxy address
   # because the app service always connects to the cluster over a reverse
   # tunnel.
-  auth_servers:
-  - teleport.example.com:3080
+  proxy_address: teleport.example.com:3080
 app_service:
     enabled: yes
     # Teleport provides a small debug app that can be used to make sure application

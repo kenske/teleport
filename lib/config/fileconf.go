@@ -306,7 +306,8 @@ func makeSampleAuthConfig(conf *service.Config, flags SampleFlags, enabled bool)
 			a.LicenseFile = flags.LicensePath
 		}
 
-		if flags.Version == defaults.TeleportConfigVersionV2 {
+		switch flags.Version {
+		case defaults.TeleportConfigVersionV2, defaults.TeleportConfigVersionV3:
 			a.ProxyListenerMode = types.ProxyListenerMode_Multiplex
 		}
 	} else {
@@ -559,9 +560,14 @@ type Global struct {
 	// AuthToken is the old way of configuring the token to be used by the
 	// node to join the Teleport cluster. `JoinParams.TokenName` should be
 	// used instead with `JoinParams.JoinMethod = types.JoinMethodToken`.
-	AuthToken   string           `yaml:"auth_token,omitempty"`
-	JoinParams  JoinParams       `yaml:"join_params,omitempty"`
-	AuthServers []string         `yaml:"auth_servers,omitempty"`
+	AuthToken  string     `yaml:"auth_token,omitempty"`
+	JoinParams JoinParams `yaml:"join_params,omitempty"`
+
+	// v1, v2
+	AuthServers []string `yaml:"auth_servers,omitempty"`
+	// v3
+	AuthServer string `yaml:"auth_server,omitempty"`
+
 	Limits      ConnectionLimits `yaml:"connection_limits,omitempty"`
 	Logger      Log              `yaml:"log,omitempty"`
 	Storage     backend.Config   `yaml:"storage,omitempty"`
