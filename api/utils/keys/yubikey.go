@@ -167,6 +167,27 @@ func (y *YubiKeyPrivateKey) keyPEM() ([]byte, error) {
 	}), nil
 }
 
+// GetAttestationCerts gets a YubiKey PIV slot's attestation certificates.
+func (y *YubiKeyPrivateKey) GetAttestationCerts() (slotCert, attestationCert *x509.Certificate, err error) {
+	yk, err := y.open()
+	if err != nil {
+		return nil, nil, trace.Wrap(err)
+	}
+	defer yk.Close()
+
+	slotCert, err = yk.Attest(y.pivSlot)
+	if err != nil {
+		return nil, nil, trace.Wrap(err)
+	}
+
+	attestationCert, err = yk.AttestationCertificate()
+	if err != nil {
+		return nil, nil, trace.Wrap(err)
+	}
+
+	return slotCert, attestationCert, nil
+}
+
 // yubiKey is a specific yubiKey PIV card.
 type yubiKey struct {
 	// card is a reader name used to find and connect to this yubiKey.
