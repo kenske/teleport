@@ -38,6 +38,7 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/installers"
 	apiutils "github.com/gravitational/teleport/api/utils"
+	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/api/utils/tlsutils"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/bpf"
@@ -886,7 +887,7 @@ type AuthenticationConfig struct {
 	// private_key_policy determines where Teleport Clients are allowed to store
 	// user private keys and how they can be accessed. Possible values are
 	// "disk", "hardware_key", and "hardware_key_touch".
-	PrivateKeyPolicy constants.PrivateKeyPolicy `yaml:"private_key_policy"`
+	PrivateKeyPolicy keys.PrivateKeyPolicy `yaml:"private_key_policy"`
 }
 
 // Parse returns a types.AuthPreference (type, second factor, U2F).
