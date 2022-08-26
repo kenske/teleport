@@ -1243,7 +1243,7 @@ func TestTerminalRequireSessionMfa(t *testing.T) {
 					Webauthn: &types.Webauthn{
 						RPID: "localhost",
 					},
-					RequireSessionMFA: true,
+					RequireSessionMFA: constants.RequireSessionMFAOn,
 				})
 				require.NoError(t, err)
 
@@ -1393,7 +1393,7 @@ func TestDesktopAccessMFARequiresMfa(t *testing.T) {
 				Webauthn: &types.Webauthn{
 					RPID: "localhost",
 				},
-				RequireSessionMFA: true,
+				RequireSessionMFA: constants.RequireSessionMFAOn,
 			},
 			mfaHandler: handleMFAWebauthnChallenge,
 			registerDevice: func(t *testing.T, ctx context.Context, clt *auth.Client) *auth.TestDevice {

@@ -2375,7 +2375,7 @@ func TestIsMFARequiredMFADB(t *testing.T) {
 			},
 			modifyRoleFunc: func(role types.Role) {
 				roleOpt := role.GetOptions()
-				roleOpt.RequireSessionMFA = true
+				roleOpt.RequireSessionMFA = constants.RequireSessionMFAOn
 				role.SetOptions(roleOpt)
 
 				role.SetDatabaseUsers(types.Allow, []string{types.Wildcard})
@@ -2399,7 +2399,7 @@ func TestIsMFARequiredMFADB(t *testing.T) {
 			},
 			modifyRoleFunc: func(role types.Role) {
 				roleOpt := role.GetOptions()
-				roleOpt.RequireSessionMFA = false
+				roleOpt.RequireSessionMFA = constants.RequireSessionMFAOff
 				role.SetOptions(roleOpt)
 
 				role.SetDatabaseUsers(types.Allow, []string{types.Wildcard})
@@ -2423,7 +2423,7 @@ func TestIsMFARequiredMFADB(t *testing.T) {
 			},
 			modifyRoleFunc: func(role types.Role) {
 				roleOpt := role.GetOptions()
-				roleOpt.RequireSessionMFA = true
+				roleOpt.RequireSessionMFA = constants.RequireSessionMFAOn
 				role.SetOptions(roleOpt)
 
 				role.SetDatabaseUsers(types.Allow, []string{types.Wildcard})
@@ -2447,7 +2447,7 @@ func TestIsMFARequiredMFADB(t *testing.T) {
 			},
 			modifyRoleFunc: func(role types.Role) {
 				roleOpt := role.GetOptions()
-				roleOpt.RequireSessionMFA = true
+				roleOpt.RequireSessionMFA = constants.RequireSessionMFAOn
 				role.SetOptions(roleOpt)
 
 				role.SetDatabaseUsers(types.Allow, []string{types.Wildcard})
