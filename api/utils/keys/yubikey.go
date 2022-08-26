@@ -57,12 +57,12 @@ func GetOrGenerateYubiKeyPrivateKey(touchRequired bool) (*PrivateKey, error) {
 	}
 
 	// Get the correct PIV slot and Touch policy for the given touch requirement:
-	//  - No Touch = 9a + TouchPolicyNever
-	//  - Touch    = 9c + TouchPolicyCached
-	pivSlot := pivSlotNoTouch
+	//  - Slot 9a = hardware_key
+	//  - Slot 9c = hardware_key_touch
+	pivSlot := piv.SlotAuthentication
 	touchPolicy := piv.TouchPolicyNever
 	if touchRequired {
-		pivSlot = pivSlotWithTouch
+		pivSlot = piv.SlotSignature
 		touchPolicy = piv.TouchPolicyCached
 	}
 
@@ -143,7 +143,7 @@ func (y *YubiKeyPrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.Sign
 	}
 	defer yk.Close()
 
-	privateKey, err := yk.PrivateKey(pivSlotNoTouch, y.pub, piv.KeyAuth{})
+	privateKey, err := yk.PrivateKey(y.pivSlot, y.pub, piv.KeyAuth{})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
