@@ -91,7 +91,7 @@ func (c *Cluster) LocalLogin(ctx context.Context, user, password, otpToken strin
 		return trace.Wrap(err)
 	}
 
-	var sshLoginFunc sshLoginFunc
+	var sshLoginFunc client.SSHLoginFunc
 	switch pingResp.Auth.SecondFactor {
 	case constants.SecondFactorOff, constants.SecondFactorOTP:
 		sshLoginFunc = c.localLogin(user, password, otpToken)
@@ -149,68 +149,21 @@ func (c *Cluster) PasswordlessLogin(ctx context.Context, stream api.TerminalServ
 	return nil
 }
 
-type sshLoginFunc func(context.Context, *keys.PrivateKey) (*auth.SSHLoginResponse, error)
+type SSHLoginFunc func(context.Context, *keys.PrivateKey) (*auth.SSHLoginResponse, error)
 
-func (c *Cluster) login(ctx context.Context, sshLogin sshLoginFunc) error {
+func (c *Cluster) login(ctx context.Context, sshLoginFunc client.SSHLoginFunc) error {
 	// TODO(alex-kovoy): SiteName needs to be reset if trying to login to a cluster with
 	// existing profile for the first time (investigate why)
 	c.clusterClient.SiteName = ""
 
-	priv, err := c.clusterClient.GetNewLoginKey("")
+	key, err := c.clusterClient.SSHLogin(ctx, sshLoginFunc)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	response, err := sshLogin(ctx, priv)
-	if err != nil {
-		expectedPolicy, parseError := keys.ParsePrivateKeyPolicyError(err)
-		if parseError != nil {
-			return trace.Wrap(err)
-		}
-
-		// The private key provided in initial login was rejected due to an unmet key policy requirement.
-		// Prepare a new private key which fulfills the expected key policy and re-login.
-		priv, err := c.clusterClient.GetNewLoginKey(expectedPolicy)
-		if err != nil {
-			return trace.Wrap(err)
-		}
-
-		response, err = sshLogin(ctx, priv)
-		if err != nil {
-			return trace.Wrap(err)
-		}
-	}
-
-	// Check that a host certificate for at least one cluster was returned.
-	if len(response.HostSigners) == 0 {
-		return trace.BadParameter("bad response from the server: expected at least one certificate, got 0")
-	}
-
-	// extract the new certificate out of the response
-	key := client.NewKey(priv)
-	key.Cert = response.Cert
-	key.TLSCert = response.TLSCert
-	key.TrustedCA = response.HostSigners
-	key.Username = response.Username
-
-	if c.clusterClient.KubernetesCluster != "" {
-		key.KubeTLSCerts[c.clusterClient.KubernetesCluster] = response.TLSCert
-	}
-	if c.clusterClient.DatabaseService != "" {
-		key.DBTLSCerts[c.clusterClient.DatabaseService] = response.TLSCert
-	}
-
-	// Store the requested cluster name in the key.
-	key.ClusterName = c.clusterClient.SiteName
-	if key.ClusterName == "" {
-		rootClusterName := key.TrustedCA[0].ClusterName
-		key.ClusterName = rootClusterName
-		c.clusterClient.SiteName = rootClusterName
-	}
-
 	// Update username before updating the profile
-	c.clusterClient.LocalAgent().UpdateUsername(response.Username)
-	c.clusterClient.Username = response.Username
+	c.clusterClient.LocalAgent().UpdateUsername(key.Username)
+	c.clusterClient.Username = key.Username
 
 	if err := c.clusterClient.ActivateKey(ctx, key); err != nil {
 		return trace.Wrap(err)
@@ -230,7 +183,7 @@ func (c *Cluster) login(ctx context.Context, sshLogin sshLoginFunc) error {
 	return nil
 }
 
-func (c *Cluster) localMFALogin(user, password string) sshLoginFunc {
+func (c *Cluster) localMFALogin(user, password string) client.SSHLoginFunc {
 	return func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
 		response, err := client.SSHAgentMFALogin(ctx, client.SSHLoginMFA{
 			SSHLogin: client.SSHLogin{
@@ -252,7 +205,7 @@ func (c *Cluster) localMFALogin(user, password string) sshLoginFunc {
 	}
 }
 
-func (c *Cluster) localLogin(user, password, otpToken string) sshLoginFunc {
+func (c *Cluster) localLogin(user, password, otpToken string) client.SSHLoginFunc {
 	return func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
 		response, err := client.SSHAgentLogin(ctx, client.SSHLoginDirect{
 			SSHLogin: client.SSHLogin{
@@ -274,7 +227,7 @@ func (c *Cluster) localLogin(user, password, otpToken string) sshLoginFunc {
 	}
 }
 
-func (c *Cluster) ssoLogin(providerType, providerName string) sshLoginFunc {
+func (c *Cluster) ssoLogin(providerType, providerName string) client.SSHLoginFunc {
 	return func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
 		response, err := client.SSHAgentSSOLogin(ctx, client.SSHLoginSSO{
 			SSHLogin: client.SSHLogin{
@@ -297,7 +250,7 @@ func (c *Cluster) ssoLogin(providerType, providerName string) sshLoginFunc {
 	}
 }
 
-func (c *Cluster) passwordlessLogin(stream api.TerminalService_LoginPasswordlessServer) sshLoginFunc {
+func (c *Cluster) passwordlessLogin(stream api.TerminalService_LoginPasswordlessServer) client.SSHLoginFunc {
 	return func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
 		response, err := client.SSHAgentPasswordlessLogin(ctx, client.SSHLoginPasswordless{
 			SSHLogin: client.SSHLogin{
