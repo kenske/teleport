@@ -3331,6 +3331,35 @@ func (tc *TeleportClient) Login(ctx context.Context) (*Key, error) {
 	return key, nil
 }
 
+// GetNewLoginKey gets a new private key for login.
+func (tc *TeleportClient) GetNewLoginKey(keyPolicy keys.PrivateKeyPolicy) (*keys.PrivateKey, error) {
+	switch keyPolicy {
+	case keys.PrivateKeyPolicyHardwareKey, keys.PrivateKeyPolicyHardwareKeyTouch:
+		priv, err := keys.GetOrGenerateYubiKeyPrivateKey(keyPolicy == keys.PrivateKeyPolicyHardwareKeyTouch)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		return priv, nil
+	default:
+		// To avoid using standard keys when we know a hardware key is needed, try
+		// reusing the proxy's existing core private key (~/.tsh/keys/proxy/user).
+		if key, err := tc.LocalAgent().GetCoreKey(); err == nil {
+			return key.PrivateKey, nil
+		} else if !trace.IsNotFound(err) {
+			return nil, trace.Wrap(err)
+		}
+		// No core key found, this is the first login for the proxy.
+		fallthrough
+	case keys.PrivateKeyPolicyNone:
+		// Generate a new standard key.
+		priv, err := native.GeneratePrivateKey()
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		return priv, nil
+	}
+}
+
 type loginFunc func(*keys.PrivateKey) (*auth.SSHLoginResponse, error)
 
 func (tc *TeleportClient) getLoginFunc(ctx context.Context) (loginFunc, error) {
