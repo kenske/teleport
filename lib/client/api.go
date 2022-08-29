@@ -394,6 +394,9 @@ type Config struct {
 
 	// Tracer is the tracer to create spans with
 	Tracer oteltrace.Tracer
+
+	// PrivateKeyPolicy is a key policy that this client will require during login.
+	PrivateKeyPolicy keys.PrivateKeyPolicy
 }
 
 // CachePolicy defines cache policy for local clients
@@ -735,6 +738,13 @@ func RetryWithRelogin(ctx context.Context, tc *TeleportClient, fn func() error) 
 		return trace.Wrap(err)
 	}
 	log.Debugf("Activating relogin on %v.", err)
+
+	// check if the error is a private key policy error.
+	if privateKeyPolicy, err := keys.ParsePrivateKeyPolicyError(err); err == nil {
+		// The current private key was rejected due to an unmet key policy requirement.
+		// Set the private key policy to the expected value and re-login.
+		tc.PrivateKeyPolicy = privateKeyPolicy
+	}
 
 	key, err := tc.Login(ctx)
 	if err != nil {
@@ -3266,15 +3276,23 @@ func (tc *TeleportClient) Login(ctx context.Context) (*Key, error) {
 		if !pr.Auth.AllowPasswordless {
 			return nil, trace.BadParameter("passwordless disallowed by cluster settings")
 		}
-		sshLoginFunc = tc.pwdlessLogin()
+		sshLoginFunc = tc.pwdlessLogin
 	case authType == constants.Local:
-		sshLoginFunc = tc.localLogin(pr.Auth.SecondFactor)
+		sshLoginFunc = func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
+			return tc.localLogin(ctx, priv, pr.Auth.SecondFactor)
+		}
 	case authType == constants.OIDC:
-		sshLoginFunc = tc.ssoLogin(pr.Auth.OIDC.Name, constants.OIDC)
+		sshLoginFunc = func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
+			return tc.ssoLogin(ctx, priv, pr.Auth.OIDC.Name, constants.OIDC)
+		}
 	case authType == constants.SAML:
-		sshLoginFunc = tc.ssoLogin(pr.Auth.SAML.Name, constants.SAML)
+		sshLoginFunc = func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
+			return tc.ssoLogin(ctx, priv, pr.Auth.SAML.Name, constants.SAML)
+		}
 	case authType == constants.Github:
-		sshLoginFunc = tc.ssoLogin(pr.Auth.Github.Name, constants.Github)
+		sshLoginFunc = func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
+			return tc.ssoLogin(ctx, priv, pr.Auth.Github.Name, constants.Github)
+		}
 	default:
 		return nil, trace.BadParameter("unsupported authentication type: %q", pr.Auth.Type)
 	}
@@ -3283,6 +3301,15 @@ func (tc *TeleportClient) Login(ctx context.Context) (*Key, error) {
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+
+	// Use proxy identity if set in key response.
+	if key.Username != "" {
+		tc.Username = key.Username
+		if tc.localAgent != nil {
+			tc.localAgent.username = key.Username
+		}
+	}
+
 	return key, nil
 }
 
@@ -3292,30 +3319,27 @@ type SSHLoginFunc func(context.Context, *keys.PrivateKey) (*auth.SSHLoginRespons
 // SSHLogin uses the given login function to login the client. This function handles
 // private key logic and parsing the resulting auth response.
 func (tc *TeleportClient) SSHLogin(ctx context.Context, sshLoginFunc SSHLoginFunc) (*Key, error) {
-	priv, err := tc.GetNewLoginKey("")
+	priv, err := tc.GetNewLoginKey(tc.PrivateKeyPolicy)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
 	response, err := sshLoginFunc(ctx, priv)
 	if err != nil {
-		// check if the error is a private key policy error.
-		expectedPolicy, parseError := keys.ParsePrivateKeyPolicyError(err)
-		if parseError != nil {
-			return nil, trace.Wrap(err)
+		// check if the error is a private key policy error, and relogin if it is.
+		if privateKeyPolicy, parseErr := keys.ParsePrivateKeyPolicyError(err); parseErr == nil {
+			// The current private key was rejected due to an unmet key policy requirement.
+			// Set the private key policy to the expected value and re-login.
+			priv, err = tc.GetNewLoginKey(privateKeyPolicy)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			response, err = sshLoginFunc(ctx, priv)
 		}
+	}
 
-		// The private key provided in initial login was rejected due to an unmet key policy requirement.
-		// Prepare a new private key which fulfills the expected key policy and re-login.
-		priv, err = tc.GetNewLoginKey(expectedPolicy)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-
-		response, err = sshLoginFunc(ctx, priv)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
+	if err != nil {
+		return nil, trace.Wrap(err)
 	}
 
 	// Check that a host certificate for at least one cluster was returned.
@@ -3328,14 +3352,7 @@ func (tc *TeleportClient) SSHLogin(ctx context.Context, sshLoginFunc SSHLoginFun
 	key.Cert = response.Cert
 	key.TLSCert = response.TLSCert
 	key.TrustedCA = response.HostSigners
-
-	// Use proxy identity if set in response.
-	if response.Username != "" {
-		tc.Username = response.Username
-		if tc.localAgent != nil {
-			tc.localAgent.username = response.Username
-		}
-	}
+	key.Username = response.Username
 
 	if tc.KubernetesCluster != "" {
 		key.KubeTLSCerts[tc.KubernetesCluster] = response.TLSCert
@@ -3404,58 +3421,54 @@ func (tc *TeleportClient) newSSHLogin(priv *keys.PrivateKey) (SSHLogin, error) {
 	}, nil
 }
 
-func (tc *TeleportClient) pwdlessLogin() SSHLoginFunc {
-	return func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
-		// Only pass on the user if explicitly set, otherwise let the credential
-		// picker kick in.
-		user := ""
-		if tc.ExplicitUsername {
-			user = tc.Username
-		}
+func (tc *TeleportClient) pwdlessLogin(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
+	// Only pass on the user if explicitly set, otherwise let the credential
+	// picker kick in.
+	user := ""
+	if tc.ExplicitUsername {
+		user = tc.Username
+	}
 
-		sshLogin, err := tc.newSSHLogin(priv)
+	sshLogin, err := tc.newSSHLogin(priv)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	response, err := SSHAgentPasswordlessLogin(ctx, SSHLoginPasswordless{
+		SSHLogin:                sshLogin,
+		User:                    user,
+		AuthenticatorAttachment: tc.AuthenticatorAttachment,
+		StderrOverride:          tc.Stderr,
+	})
+
+	return response, trace.Wrap(err)
+}
+
+func (tc *TeleportClient) localLogin(ctx context.Context, priv *keys.PrivateKey, secondFactor constants.SecondFactorType) (*auth.SSHLoginResponse, error) {
+	var err error
+	var response *auth.SSHLoginResponse
+
+	// TODO(awly): mfa: ideally, clients should always go through mfaLocalLogin
+	// (with a nop MFA challenge if no 2nd factor is required). That way we can
+	// deprecate the direct login endpoint.
+	switch secondFactor {
+	case constants.SecondFactorOff, constants.SecondFactorOTP:
+		response, err = tc.directLogin(ctx, secondFactor, priv)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-
-		response, err := SSHAgentPasswordlessLogin(ctx, SSHLoginPasswordless{
-			SSHLogin:                sshLogin,
-			User:                    user,
-			AuthenticatorAttachment: tc.AuthenticatorAttachment,
-			StderrOverride:          tc.Stderr,
-		})
-
-		return response, trace.Wrap(err)
-	}
-}
-
-func (tc *TeleportClient) localLogin(secondFactor constants.SecondFactorType) SSHLoginFunc {
-	return func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
-		var err error
-		var response *auth.SSHLoginResponse
-
-		// TODO(awly): mfa: ideally, clients should always go through mfaLocalLogin
-		// (with a nop MFA challenge if no 2nd factor is required). That way we can
-		// deprecate the direct login endpoint.
-		switch secondFactor {
-		case constants.SecondFactorOff, constants.SecondFactorOTP:
-			response, err = tc.directLogin(ctx, secondFactor, priv)
-			if err != nil {
-				return nil, trace.Wrap(err)
-			}
-		case constants.SecondFactorU2F, constants.SecondFactorWebauthn, constants.SecondFactorOn, constants.SecondFactorOptional:
-			response, err = tc.mfaLocalLogin(ctx, priv)
-			if err != nil {
-				return nil, trace.Wrap(err)
-			}
-		default:
-			return nil, trace.BadParameter("unsupported second factor type: %q", secondFactor)
+	case constants.SecondFactorU2F, constants.SecondFactorWebauthn, constants.SecondFactorOn, constants.SecondFactorOptional:
+		response, err = tc.mfaLocalLogin(ctx, priv)
+		if err != nil {
+			return nil, trace.Wrap(err)
 		}
-
-		// Ignore username returned from proxy
-		response.Username = ""
-		return response, nil
+	default:
+		return nil, trace.BadParameter("unsupported second factor type: %q", secondFactor)
 	}
+
+	// Ignore username returned from proxy
+	response.Username = ""
+	return response, nil
 }
 
 // directLogin asks for a password + HOTP token, makes a request to CA via proxy
@@ -3518,28 +3531,26 @@ func (tc *TeleportClient) mfaLocalLogin(ctx context.Context, priv *keys.PrivateK
 type SSOLoginFunc func(ctx context.Context, connectorID string, priv *keys.PrivateKey, protocol string) (*auth.SSHLoginResponse, error)
 
 // samlLogin opens browser window and uses OIDC or SAML redirect cycle with browser
-func (tc *TeleportClient) ssoLogin(connectorID string, protocol string) SSHLoginFunc {
-	return func(ctx context.Context, priv *keys.PrivateKey) (*auth.SSHLoginResponse, error) {
-		if tc.MockSSOLogin != nil {
-			// sso login response is being mocked for testing purposes
-			return tc.MockSSOLogin(ctx, connectorID, priv, protocol)
-		}
-
-		sshLogin, err := tc.newSSHLogin(priv)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-
-		// ask the CA (via proxy) to sign our public key:
-		response, err := SSHAgentSSOLogin(ctx, SSHLoginSSO{
-			SSHLogin:    sshLogin,
-			ConnectorID: connectorID,
-			Protocol:    protocol,
-			BindAddr:    tc.BindAddr,
-			Browser:     tc.Browser,
-		}, nil)
-		return response, trace.Wrap(err)
+func (tc *TeleportClient) ssoLogin(ctx context.Context, priv *keys.PrivateKey, connectorID string, protocol string) (*auth.SSHLoginResponse, error) {
+	if tc.MockSSOLogin != nil {
+		// sso login response is being mocked for testing purposes
+		return tc.MockSSOLogin(ctx, connectorID, priv, protocol)
 	}
+
+	sshLogin, err := tc.newSSHLogin(priv)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	// ask the CA (via proxy) to sign our public key:
+	response, err := SSHAgentSSOLogin(ctx, SSHLoginSSO{
+		SSHLogin:    sshLogin,
+		ConnectorID: connectorID,
+		Protocol:    protocol,
+		BindAddr:    tc.BindAddr,
+		Browser:     tc.Browser,
+	}, nil)
+	return response, trace.Wrap(err)
 }
 
 // ActivateKey saves the target session cert into the local

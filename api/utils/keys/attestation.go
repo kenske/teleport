@@ -108,6 +108,13 @@ func (p PrivateKeyPolicy) VerifyPolicy(policy PrivateKeyPolicy) error {
 	return trace.BadParameter(privateKeyPolicyErrMsg + string(p))
 }
 
+func IsPrivateKeyPolicyError(err error) bool {
+	if trace.IsBadParameter(err) {
+		return strings.Contains(err.Error(), privateKeyPolicyErrMsg)
+	}
+	return false
+}
+
 // ParsePrivateKeyPolicyError checks if the given error matches one from VerifyPolicy,
 // and returns the contained PrivateKeyPolicy.
 func ParsePrivateKeyPolicyError(err error) (PrivateKeyPolicy, error) {
