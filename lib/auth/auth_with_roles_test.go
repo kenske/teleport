@@ -661,11 +661,11 @@ func TestGithubAuthRequest(t *testing.T) {
 		ClientSecret: "example-client-secret",
 		RedirectURL:  "https://localhost:3080/v1/webapi/github/callback",
 		Display:      "sign in with github",
-		TeamsToLogins: []types.TeamMapping{
+		TeamsToRoles: []types.TeamRolesMapping{
 			{
 				Organization: "octocats",
 				Team:         "idp-admin",
-				Logins:       []string{"access"},
+				Roles:        []string{"access"},
 			},
 		},
 	})
@@ -680,11 +680,11 @@ func TestGithubAuthRequest(t *testing.T) {
 		ClientSecret: "example-client-secret",
 		RedirectURL:  "https://localhost:3080/v1/webapi/github/callback",
 		Display:      "sign in with github",
-		TeamsToLogins: []types.TeamMapping{
+		TeamsToRoles: []types.TeamRolesMapping{
 			{
 				Organization: "octocats",
 				Team:         "idp-admin",
-				Logins:       []string{"access"},
+				Roles:        []string{"access"},
 			},
 		},
 	}}

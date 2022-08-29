@@ -51,11 +51,11 @@ func TestUnmarshal(t *testing.T) {
 		ClientSecret: "bbb",
 		RedirectURL:  "https://localhost:3080/v1/webapi/github/callback",
 		Display:      "Github",
-		TeamsToLogins: []types.TeamMapping{
+		TeamsToRoles: []types.TeamRolesMapping{
 			{
 				Organization: "gravitational",
 				Team:         "admins",
-				Logins:       []string{"admin"},
+				Roles:        []string{"admin"},
 			},
 		},
 	})
@@ -71,26 +71,16 @@ func TestMapClaims(t *testing.T) {
 		ClientSecret: "bbb",
 		RedirectURL:  "https://localhost:3080/v1/webapi/github/callback",
 		Display:      "Github",
-		TeamsToLogins: []types.TeamMapping{
-			{
-				Organization: "gravitational",
-				Team:         "admins",
-				Logins:       []string{"admin", "dev"},
-				KubeGroups:   []string{"system:masters", "kube-devs"},
-				KubeUsers:    []string{"alice@example.com"},
-			},
-			{
-				Organization: "gravitational",
-				Team:         "devs",
-				Logins:       []string{"dev", "test"},
-				KubeGroups:   []string{"kube-devs"},
-			},
-		},
 		TeamsToRoles: []types.TeamRolesMapping{
 			{
 				Organization: "gravitational",
 				Team:         "admins",
 				Roles:        []string{"system"},
+			},
+			{
+				Organization: "gravitational",
+				Team:         "devs",
+				Roles:        []string{"dev"},
 			},
 		},
 	})
@@ -101,9 +91,9 @@ func TestMapClaims(t *testing.T) {
 			"gravitational": {"admins"},
 		},
 	})
-	require.Empty(t, cmp.Diff(roles, []string{"admin", "dev", "system"}))
-	require.Empty(t, cmp.Diff(kubeGroups, []string{"system:masters", "kube-devs"}))
-	require.Empty(t, cmp.Diff(kubeUsers, []string{"alice@example.com"}))
+	require.Empty(t, cmp.Diff(roles, []string{"system"}))
+	require.Empty(t, kubeGroups)
+	require.Empty(t, kubeUsers)
 
 	roles, kubeGroups, kubeUsers = connector.MapClaims(types.GithubClaims{
 		OrganizationToTeams: map[string][]string{
@@ -111,16 +101,16 @@ func TestMapClaims(t *testing.T) {
 		},
 	})
 
-	require.Empty(t, cmp.Diff(roles, []string{"dev", "test"}))
-	require.Empty(t, cmp.Diff(kubeGroups, []string{"kube-devs"}))
-	require.Empty(t, cmp.Diff(kubeUsers, []string(nil)))
+	require.Empty(t, cmp.Diff(roles, []string{"dev"}))
+	require.Empty(t, kubeGroups)
+	require.Empty(t, kubeUsers)
 
 	roles, kubeGroups, kubeUsers = connector.MapClaims(types.GithubClaims{
 		OrganizationToTeams: map[string][]string{
 			"gravitational": {"admins", "devs"},
 		},
 	})
-	require.Empty(t, cmp.Diff(roles, []string{"admin", "dev", "test", "system"}))
-	require.Empty(t, cmp.Diff(kubeGroups, []string{"system:masters", "kube-devs"}))
-	require.Empty(t, cmp.Diff(kubeUsers, []string{"alice@example.com"}))
+	require.Empty(t, cmp.Diff(roles, []string{"system", "dev"}))
+	require.Empty(t, kubeGroups)
+	require.Empty(t, kubeUsers)
 }

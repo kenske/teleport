@@ -920,12 +920,11 @@ func (s *ServicesTestSuite) GithubConnectorCRUD(t *testing.T) {
 			ClientSecret: "bbb",
 			RedirectURL:  "https://localhost:3080/v1/webapi/github/callback",
 			Display:      "Github",
-			TeamsToLogins: []types.TeamMapping{
+			TeamsToRoles: []types.TeamRolesMapping{
 				{
 					Organization: "gravitational",
 					Team:         "admins",
-					Logins:       []string{"admin"},
-					KubeGroups:   []string{"system:masters"},
+					Roles:        []string{"admin"},
 				},
 			},
 		},

@@ -152,12 +152,11 @@ func TestGithubConnectorResource(t *testing.T) {
 			ClientSecret: "bbb",
 			RedirectURL:  "https://localhost:3080/v1/webapi/github/callback",
 			Display:      "Github",
-			TeamsToLogins: []types.TeamMapping{
+			TeamsToRoles: []types.TeamRolesMapping{
 				{
 					Organization: "gravitational",
 					Team:         "admins",
-					Logins:       []string{"admin"},
-					KubeGroups:   []string{"system:masters"},
+					Roles:        []string{"admin"},
 				},
 			},
 		},
@@ -228,7 +227,7 @@ func runCreationChecks(t *testing.T, tt *servicesContext, resources ...types.Res
 Outer:
 	for _, exp := range resources {
 		for _, got := range dump {
-			if got.GetKind() == exp.GetKind() && got.GetName() == exp.GetName() && got.Expiry() == exp.Expiry() {
+			if got.GetKind() == exp.GetKind() && got.GetName() == exp.GetName() && got.Expiry().Equal(exp.Expiry()) {
 				continue Outer
 			}
 		}

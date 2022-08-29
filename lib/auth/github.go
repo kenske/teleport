@@ -308,9 +308,8 @@ func (a *Server) validateGithubAuthCallback(ctx context.Context, diagCtx *ssoDia
 	if err != nil {
 		return nil, trace.Wrap(err, "Failed to get Github connector and client.")
 	}
-	diagCtx.info.GithubTeamsToLogins = connector.GetTeamsToLogins()
 	diagCtx.info.GithubTeamsToRoles = connector.GetTeamsToRoles()
-	logger.Debugf("Connector %q teams to logins: %v, roles: %v", connector.GetName(), connector.GetTeamsToLogins(), connector.GetTeamsToRoles())
+	logger.Debugf("Connector %q teams to roles: %v", connector.GetName(), connector.GetTeamsToRoles())
 
 	// exchange the authorization code received by the callback for an access token
 	token, err := client.RequestToken(oauth2.GrantTypeAuthCode, code)

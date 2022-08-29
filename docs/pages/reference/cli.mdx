@@ -1635,14 +1635,14 @@ spec:
   client_secret: GH_SECRET
   display: ""
   redirect_url: https://teleport.example.com:3080/v1/webapi/github/callback
-  teams_to_logins:
-  - logins:
+  teams_to_roles:
+  - roles:
     - access
     - editor
     - auditor
     organization: octocats
     team: admin
-  - logins:
+  - roles:
     - access
     organization: octocats
     team: dev
@@ -1759,7 +1759,7 @@ $ tctl sso configure oidc ... | tctl sso test
 
 Configure the SAML auth connector, optionally using a preset.
 
-The flag `--attributes-to-roles/-r` can be provided multiple times. 
+The flag `--attributes-to-roles/-r` can be provided multiple times.
 
 To avoid errors when pasting XML to a YAML file, we encourage the usage of the flag `--entity-descriptor`/`-e`.
 

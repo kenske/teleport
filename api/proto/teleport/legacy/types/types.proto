@@ -3085,12 +3085,7 @@ message OIDCConnectorSpecV3 {
   string ClientID = 2 [(gogoproto.jsontag) = "client_id"];
   // ClientSecret is used to authenticate the client.
   string ClientSecret = 3 [(gogoproto.jsontag) = "client_secret"];
-  // RedirectURL is a URL that will redirect the client's browser
-  // back to the identity provider after successful authentication.
-  // This should match the URL on the Provider's side.
-  //
-  // DELETE IN 11.0.0 in favor of RedirectURLs
-  string RedirectURL = 4 [(gogoproto.jsontag) = "-"];
+  reserved 4; // string RedirectURL (replaced by RedirectURIs)
   // ACR is an Authentication Context Class Reference value. The meaning of the ACR
   // value is context-specific and varies for identity providers.
   string ACR = 5 [(gogoproto.jsontag) = "acr_values,omitempty"];
@@ -3377,14 +3372,7 @@ message GithubConnectorSpecV3 {
   string ClientSecret = 2 [(gogoproto.jsontag) = "client_secret"];
   // RedirectURL is the authorization callback URL.
   string RedirectURL = 3 [(gogoproto.jsontag) = "redirect_url"];
-  // TeamsToLogins maps Github team memberships onto allowed logins/roles.
-  //
-  // DELETE IN 11.0.0
-  // Deprecated: use GithubTeamsToRoles instead.
-  repeated TeamMapping TeamsToLogins = 4 [
-    (gogoproto.nullable) = false,
-    (gogoproto.jsontag) = "teams_to_logins"
-  ];
+  reserved 4; // repeated TeamMapping TeamsToLogins (replaced by TeamsToRoles)
   // Display is the connector display name.
   string Display = 5 [(gogoproto.jsontag) = "display"];
   // TeamsToRoles maps Github team memberships onto allowed roles.
@@ -3565,10 +3553,7 @@ message SSODiagnosticInfo {
   GithubClaims GithubClaims = 30 [(gogoproto.jsontag) = "github_claims,omitempty"];
 
   // GithubTeamsToLogins is TeamsToLogins mapping from Github connector used in the SSO flow.
-  repeated TeamMapping GithubTeamsToLogins = 31 [
-    (gogoproto.nullable) = false,
-    (gogoproto.jsontag) = "github_teams_to_logins,omitempty"
-  ];
+  reserved 31; // repeated TeamMapping GithubTeamsToLogins (replaced by GithubTeamsToRoles)
 
   // GithubTeamsToRoles is TeamRolesMapping mapping from Github connector used in the SSO flow.
   repeated TeamRolesMapping GithubTeamsToRoles = 32 [
@@ -3602,22 +3587,6 @@ message GithubClaims {
 
   // Teams is the users team membership
   repeated string Teams = 3 [(gogoproto.jsontag) = "teams"];
-}
-
-// TeamMapping represents a single team membership mapping.
-//
-// DELETE IN 11.0.0
-message TeamMapping {
-  // Organization is a Github organization a user belongs to.
-  string Organization = 1 [(gogoproto.jsontag) = "organization"];
-  // Team is a team within the organization a user belongs to.
-  string Team = 2 [(gogoproto.jsontag) = "team"];
-  // Logins is a list of allowed logins for this org/team.
-  repeated string Logins = 3 [(gogoproto.jsontag) = "logins,omitempty"];
-  // KubeGroups is a list of allowed kubernetes groups for this org/team.
-  repeated string KubeGroups = 4 [(gogoproto.jsontag) = "kubernetes_groups,omitempty"];
-  // KubeUsers is a list of allowed kubernetes users to impersonate for this org/team.
-  repeated string KubeUsers = 5 [(gogoproto.jsontag) = "kubernetes_users,omitempty"];
 }
 
 // TeamRolesMapping represents a single team membership mapping.

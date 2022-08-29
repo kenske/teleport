@@ -80,20 +80,19 @@ spec:
   client_secret: ""
   display: ""
   redirect_url: ""
-  teams_to_logins:
-  - logins:
+  teams_to_roles:
+  - roles:
     - dummy
     organization: octocats
     team: dummy
-  teams_to_roles: null
 version: v3
 `
 	githubConn, err := types.NewGithubConnector("githubName", types.GithubConnectorSpecV3{
-		TeamsToLogins: []types.TeamMapping{
+		TeamsToRoles: []types.TeamRolesMapping{
 			{
 				Organization: "octocats",
 				Team:         "dummy",
-				Logins:       []string{"dummy"},
+				Roles:        []string{"dummy"},
 			},
 		},
 	})
@@ -251,11 +250,11 @@ func TestGetGithubConnectors(t *testing.T) {
 
 	m.mockGetGithubConnectors = func(ctx context.Context, withSecrets bool) ([]types.GithubConnector, error) {
 		connector, err := types.NewGithubConnector("test", types.GithubConnectorSpecV3{
-			TeamsToLogins: []types.TeamMapping{
+			TeamsToRoles: []types.TeamRolesMapping{
 				{
 					Organization: "octocats",
 					Team:         "dummy",
-					Logins:       []string{"dummy"},
+					Roles:        []string{"dummy"},
 				},
 			},
 		})
@@ -297,11 +296,10 @@ spec:
   client_secret: <client-secret>
   display: Github
   redirect_url: https://<cluster-url>/v1/webapi/github/callback
-  teams_to_logins:
-  - logins:
-    - admins
-    organization: <github-org>
+  teams_to_roles:
+  - organization: <github-org>
     team: admins
+    roles: [ admins ]
 version: v3`
 
 	// Test POST (create) connector.

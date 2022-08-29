@@ -2831,16 +2831,13 @@ func (a *ServerWithRoles) DeleteSAMLConnector(ctx context.Context, connectorID s
 }
 
 func (a *ServerWithRoles) checkGithubConnector(connector types.GithubConnector) error {
-	mapping := connector.GetTeamsToLogins()
+	mapping := connector.GetTeamsToRoles()
 	for _, team := range mapping {
-		if len(team.KubeUsers) != 0 || len(team.KubeGroups) != 0 {
-			return trace.BadParameter("since 6.0 teleport uses teams_to_logins to reference a role, use it instead of local kubernetes_users and kubernetes_groups ")
-		}
-		for _, localRole := range team.Logins {
+		for _, localRole := range team.Roles {
 			_, err := a.GetRole(context.TODO(), localRole)
 			if err != nil {
 				if trace.IsNotFound(err) {
-					return trace.BadParameter("since 6.0 teleport uses teams_to_logins to reference a role, role %q referenced in mapping for organization %q is not found", localRole, team.Organization)
+					return trace.BadParameter("role %q referenced in mapping for GitHub organization %q is not found", localRole, team.Organization)
 				}
 				return trace.Wrap(err)
 			}
@@ -3771,15 +3768,15 @@ func (a *ServerWithRoles) SignDatabaseCSR(ctx context.Context, req *proto.Databa
 //
 // This certificate can be requested by:
 //
-//  - Cluster administrator using "tctl auth sign --format=db" command locally
-//    on the auth server to produce a certificate for configuring a self-hosted
-//    database.
-//  - Remote user using "tctl auth sign --format=db" command with a remote
-//    proxy (e.g. Teleport Cloud), as long as they can impersonate system
-//    role Db.
-//  - Database service when initiating connection to a database instance to
-//    produce a client certificate.
-//  - Proxy service when generating mTLS files to a database
+//   - Cluster administrator using "tctl auth sign --format=db" command locally
+//     on the auth server to produce a certificate for configuring a self-hosted
+//     database.
+//   - Remote user using "tctl auth sign --format=db" command with a remote
+//     proxy (e.g. Teleport Cloud), as long as they can impersonate system
+//     role Db.
+//   - Database service when initiating connection to a database instance to
+//     produce a client certificate.
+//   - Proxy service when generating mTLS files to a database
 func (a *ServerWithRoles) GenerateDatabaseCert(ctx context.Context, req *proto.DatabaseCertRequest) (*proto.DatabaseCertResponse, error) {
 	// Check if the User can `create` DatabaseCertificates
 	err := a.action(apidefaults.Namespace, types.KindDatabaseCertificate, types.VerbCreate)

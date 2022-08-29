@@ -2846,11 +2846,11 @@ func TestGetWebConfig(t *testing.T) {
 
 	// Add a test connector.
 	github, err := types.NewGithubConnector("test-github", types.GithubConnectorSpecV3{
-		TeamsToLogins: []types.TeamMapping{
+		TeamsToRoles: []types.TeamRolesMapping{
 			{
 				Organization: "octocats",
 				Team:         "dummy",
-				Logins:       []string{"dummy"},
+				Roles:        []string{"dummy"},
 			},
 		},
 	})
@@ -3568,8 +3568,8 @@ func TestWebSessionsRenewAllowsOldBearerTokenToLinger(t *testing.T) {
 }
 
 // TestChangeUserAuthentication_recoveryCodesReturnedForCloud tests for following:
-//  - Recovery codes are not returned for usernames that are not emails
-//  - Recovery codes are returned for usernames that are valid emails
+//   - Recovery codes are not returned for usernames that are not emails
+//   - Recovery codes are returned for usernames that are valid emails
 func TestChangeUserAuthentication_recoveryCodesReturnedForCloud(t *testing.T) {
 	env := newWebPack(t, 1)
 	ctx := context.Background()
