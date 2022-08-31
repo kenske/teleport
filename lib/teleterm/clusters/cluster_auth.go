@@ -116,6 +116,7 @@ func (c *Cluster) LocalLogin(ctx context.Context, user, password, otpToken strin
 		return trace.BadParameter("unsupported second factor type: %q", pingResp.Auth.SecondFactor)
 	}
 
+	c.clusterClient.PrivateKeyPolicy = pingResp.Auth.PrivateKeyPolicy
 	if err := c.login(ctx, sshLoginFunc); err != nil {
 		return trace.Wrap(err)
 	}
@@ -125,10 +126,12 @@ func (c *Cluster) LocalLogin(ctx context.Context, user, password, otpToken strin
 
 // SSOLogin logs in a user to the Teleport cluster using supported SSO provider
 func (c *Cluster) SSOLogin(ctx context.Context, providerType, providerName string) error {
-	if _, err := c.clusterClient.Ping(ctx); err != nil {
+	pingResp, err := c.clusterClient.Ping(ctx)
+	if err != nil {
 		return trace.Wrap(err)
 	}
 
+	c.clusterClient.PrivateKeyPolicy = pingResp.Auth.PrivateKeyPolicy
 	if err := c.login(ctx, c.ssoLogin(providerType, providerName)); err != nil {
 		return trace.Wrap(err)
 	}
@@ -138,10 +141,12 @@ func (c *Cluster) SSOLogin(ctx context.Context, providerType, providerName strin
 
 // PasswordlessLogin processes passwordless logins for this cluster.
 func (c *Cluster) PasswordlessLogin(ctx context.Context, stream api.TerminalService_LoginPasswordlessServer) error {
-	if _, err := c.clusterClient.Ping(ctx); err != nil {
+	pingResp, err := c.clusterClient.Ping(ctx)
+	if err != nil {
 		return trace.Wrap(err)
 	}
 
+	c.clusterClient.PrivateKeyPolicy = pingResp.Auth.PrivateKeyPolicy
 	if err := c.login(ctx, c.passwordlessLogin(stream)); err != nil {
 		return trace.Wrap(err)
 	}

@@ -167,25 +167,44 @@ func (y *YubiKeyPrivateKey) keyPEM() ([]byte, error) {
 	}), nil
 }
 
-// GetAttestationCerts gets a YubiKey PIV slot's attestation certificates.
-func (y *YubiKeyPrivateKey) GetAttestationCerts() (slotCert, attestationCert *x509.Certificate, err error) {
+// GetAttestationRequest returns an AttestationRequest for this YubiKeyPrivateKey.
+func (y *YubiKeyPrivateKey) GetAttestationRequest() (*AttestationRequest, error) {
 	yk, err := y.open()
 	if err != nil {
-		return nil, nil, trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 	defer yk.Close()
 
-	slotCert, err = yk.Attest(y.pivSlot)
+	slotCert, err := yk.Attest(y.pivSlot)
 	if err != nil {
-		return nil, nil, trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 
-	attestationCert, err = yk.AttestationCertificate()
+	attCert, err := yk.AttestationCertificate()
 	if err != nil {
-		return nil, nil, trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 
-	return slotCert, attestationCert, nil
+	return &AttestationRequest{
+		AttestationRequest: &AttestationRequest_YubikeyAttestationRequest{
+			YubikeyAttestationRequest: &YubiKeyAttestationRequest{
+				SlotCert:        slotCert.Raw,
+				AttestationCert: attCert.Raw,
+			},
+		},
+	}, nil
+}
+
+// GetPrivateKeyPolicy returns the PrivateKeyPolicy supported by this YubiKeyPrivateKey.
+func (k *YubiKeyPrivateKey) GetPrivateKeyPolicy() PrivateKeyPolicy {
+	switch k.pivSlot {
+	case pivSlotNoTouch:
+		return PrivateKeyPolicyHardwareKey
+	case pivSlotWithTouch:
+		return PrivateKeyPolicyHardwareKeyTouch
+	default:
+		return PrivateKeyPolicyNone
+	}
 }
 
 // yubiKey is a specific yubiKey PIV card.

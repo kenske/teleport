@@ -23,6 +23,32 @@ import (
 	"github.com/gravitational/trace"
 )
 
+// HardwarePrivateKey is a private key which can be attested to support enforced private key policies.
+type HardwarePrivateKey interface {
+	// GetAttestationRequest returns an AttestationRequest for this private key.
+	GetAttestationRequest() (*AttestationRequest, error)
+
+	// GetPrivateKeyPolicy returns the PrivateKeyPolicy supported by this private key.
+	GetPrivateKeyPolicy() PrivateKeyPolicy
+}
+
+// GetAttestationRequest returns an AttestationRequest for the given private key.
+// If the given private key is not a YubiKeyPrivateKey, then a nil request will be returned.
+func GetAttestationRequest(priv *PrivateKey) (*AttestationRequest, error) {
+	if attestedPriv, ok := priv.Signer.(HardwarePrivateKey); ok {
+		return attestedPriv.GetAttestationRequest()
+	}
+	// Just return a nil attestation request and let this key fail any attestation checks.
+	return nil, nil
+}
+
+func GetPrivateKeyPolicy(priv *PrivateKey) PrivateKeyPolicy {
+	if attestedPriv, ok := priv.Signer.(HardwarePrivateKey); ok {
+		return attestedPriv.GetPrivateKeyPolicy()
+	}
+	return PrivateKeyPolicyNone
+}
+
 // AttestationResponse is veriried attestation data for a public key.
 type AttestationResponse struct {
 	// PublicKeyDER is the public key in PKIX, ASN.1 DER form.

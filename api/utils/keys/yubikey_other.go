@@ -29,6 +29,8 @@ func GetOrGenerateYubiKeyPrivateKey(touchRequired bool) (*PrivateKey, error) {
 	return nil, trace.Wrap(errPIVUnavailable)
 }
 
-func parseYubiKeyPrivateKeyData(keyDataBytes []byte) (crypto.Signer, error) {
+func parseYubiKeyPrivateKeyData(keyDataBytes []byte) (*YubiKeyPrivateKey, error) {
 	return nil, trace.Wrap(errPIVUnavailable)
 }
+
+type YubiKeyPrivateKey crypto.Signer

@@ -395,7 +395,7 @@ type Config struct {
 	// Tracer is the tracer to create spans with
 	Tracer oteltrace.Tracer
 
-	// PrivateKeyPolicy is a key policy that this client will require during login.
+	// PrivateKeyPolicy is a key policy that this client will use during login.
 	PrivateKeyPolicy keys.PrivateKeyPolicy
 }
 
@@ -3297,6 +3297,11 @@ func (tc *TeleportClient) Login(ctx context.Context) (*Key, error) {
 		return nil, trace.BadParameter("unsupported authentication type: %q", pr.Auth.Type)
 	}
 
+	// Only set private key policy from ping response if not already set.
+	if tc.PrivateKeyPolicy == "" {
+		tc.PrivateKeyPolicy = pr.Auth.PrivateKeyPolicy
+	}
+
 	key, err := tc.SSHLogin(ctx, sshLoginFunc)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -3374,6 +3379,18 @@ func (tc *TeleportClient) SSHLogin(ctx context.Context, sshLoginFunc SSHLoginFun
 
 // GetNewLoginKey gets a new private key for login.
 func (tc *TeleportClient) GetNewLoginKey(keyPolicy keys.PrivateKeyPolicy) (*keys.PrivateKey, error) {
+	key, err := tc.LocalAgent().GetCoreKey()
+	if err == nil {
+		// If we find an existing key with a supported key policy, then we should compare
+		// its key policy to the provided keyPolicy and use the stricter of the two.
+		coreKeyPolicy := keys.GetPrivateKeyPolicy(key.PrivateKey)
+		if err := coreKeyPolicy.VerifyPolicy(keyPolicy); err != nil {
+			keyPolicy = coreKeyPolicy
+		}
+	} else if !trace.IsNotFound(err) {
+		return nil, trace.Wrap(err)
+	}
+
 	switch keyPolicy {
 	case keys.PrivateKeyPolicyHardwareKey, keys.PrivateKeyPolicyHardwareKeyTouch:
 		priv, err := keys.GetOrGenerateYubiKeyPrivateKey(keyPolicy == keys.PrivateKeyPolicyHardwareKeyTouch)
@@ -3382,16 +3399,6 @@ func (tc *TeleportClient) GetNewLoginKey(keyPolicy keys.PrivateKeyPolicy) (*keys
 		}
 		return priv, nil
 	default:
-		// To avoid using standard keys when we know a hardware key is needed, try
-		// reusing the proxy's existing core private key (~/.tsh/keys/proxy/user).
-		if key, err := tc.LocalAgent().GetCoreKey(); err == nil {
-			return key.PrivateKey, nil
-		} else if !trace.IsNotFound(err) {
-			return nil, trace.Wrap(err)
-		}
-		// No core key found, this is the first login for the proxy.
-		fallthrough
-	case keys.PrivateKeyPolicyNone:
 		// Generate a new standard key.
 		priv, err := native.GeneratePrivateKey()
 		if err != nil {
@@ -3403,7 +3410,7 @@ func (tc *TeleportClient) GetNewLoginKey(keyPolicy keys.PrivateKeyPolicy) (*keys
 
 // new SSHLogin generates a new SSHLogin using the given login key.
 func (tc *TeleportClient) newSSHLogin(priv *keys.PrivateKey) (SSHLogin, error) {
-	attestationReq, err := priv.GetAttestationRequest()
+	attestationReq, err := keys.GetAttestationRequest(priv)
 	if err != nil {
 		return SSHLogin{}, trace.Wrap(err)
 	}
