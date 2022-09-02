@@ -32,12 +32,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ghodss/yaml"
+	"github.com/gravitational/trace"
+	"github.com/stretchr/testify/require"
+	otlp "go.opentelemetry.io/proto/otlp/trace/v1"
+	"go.uber.org/atomic"
+	"golang.org/x/crypto/ssh"
+	yamlv2 "gopkg.in/yaml.v2"
+
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/breaker"
 	"github.com/gravitational/teleport/api/constants"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/profile"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/api/types/wrappers"
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib"
@@ -55,14 +64,7 @@ import (
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/prompt"
-
-	"github.com/ghodss/yaml"
-	"github.com/gravitational/trace"
-	"github.com/stretchr/testify/require"
-	otlp "go.opentelemetry.io/proto/otlp/trace/v1"
-	"go.uber.org/atomic"
-	"golang.org/x/crypto/ssh"
-	yamlv2 "gopkg.in/yaml.v2"
+	"github.com/gravitational/teleport/tool/common"
 )
 
 const (
@@ -239,7 +241,7 @@ func TestAlias(t *testing.T) {
 			config := &TshConfig{Aliases: tt.aliases}
 			configBytes, err := yamlv2.Marshal(config)
 			require.NoError(t, err)
-			err = os.WriteFile(filepath.Join(tmpHomePath, "tsh_global.yaml"), configBytes, 0777)
+			err = os.WriteFile(filepath.Join(tmpHomePath, "tsh_global.yaml"), configBytes, 0o777)
 			require.NoError(t, err)
 
 			// run command
@@ -642,7 +644,7 @@ func TestMakeClient(t *testing.T) {
 	require.Error(t, err)
 
 	// minimal configuration (with defaults)
-	conf.Proxy = "proxy"
+	conf.Proxy = "proxy:3080"
 	conf.UserHost = "localhost"
 	tc, err = makeClient(&conf, true)
 	require.NoError(t, err)
@@ -1178,7 +1180,7 @@ func TestIdentityRead(t *testing.T) {
 		require.Nil(t, cb)
 
 		// test creating an auth method from the key:
-		am, err := authFromIdentity(k)
+		am, err := k.AsAuthMethod()
 		require.NoError(t, err)
 		require.NotNil(t, am)
 	}
@@ -1274,7 +1276,7 @@ func TestFormatConnectCommand(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.comment, func(t *testing.T) {
-			require.Equal(t, test.command, formatConnectCommand(test.clusterFlag, test.db))
+			require.Equal(t, test.command, formatDatabaseConnectCommand(test.clusterFlag, test.db))
 		})
 	}
 }
@@ -1451,12 +1453,16 @@ func TestKubeConfigUpdate(t *testing.T) {
 			kubeStatus: &kubernetesStatus{
 				clusterAddr:         "https://a.example.com:3026",
 				teleportClusterName: "a.example.com",
-				kubeClusters: []*types.KubernetesCluster{
-					{
-						Name: "dev",
+				kubeClusters: []types.KubeCluster{
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "dev",
+						},
 					},
-					{
-						Name: "prod",
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "prod",
+						},
 					},
 				},
 				credentials: creds,
@@ -1483,12 +1489,16 @@ func TestKubeConfigUpdate(t *testing.T) {
 			kubeStatus: &kubernetesStatus{
 				clusterAddr:         "https://a.example.com:3026",
 				teleportClusterName: "a.example.com",
-				kubeClusters: []*types.KubernetesCluster{
-					{
-						Name: "dev",
+				kubeClusters: []types.KubeCluster{
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "dev",
+						},
 					},
-					{
-						Name: "prod",
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "prod",
+						},
 					},
 				},
 				credentials: creds,
@@ -1515,12 +1525,16 @@ func TestKubeConfigUpdate(t *testing.T) {
 			kubeStatus: &kubernetesStatus{
 				clusterAddr:         "https://a.example.com:3026",
 				teleportClusterName: "a.example.com",
-				kubeClusters: []*types.KubernetesCluster{
-					{
-						Name: "dev",
+				kubeClusters: []types.KubeCluster{
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "dev",
+						},
 					},
-					{
-						Name: "prod",
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "prod",
+						},
 					},
 				},
 				credentials: creds,
@@ -1539,7 +1553,7 @@ func TestKubeConfigUpdate(t *testing.T) {
 			kubeStatus: &kubernetesStatus{
 				clusterAddr:         "https://a.example.com:3026",
 				teleportClusterName: "a.example.com",
-				kubeClusters:        []*types.KubernetesCluster{},
+				kubeClusters:        []types.KubeCluster{},
 				credentials:         creds,
 			},
 			errorAssertion: require.NoError,
@@ -1559,12 +1573,16 @@ func TestKubeConfigUpdate(t *testing.T) {
 			kubeStatus: &kubernetesStatus{
 				clusterAddr:         "https://a.example.com:3026",
 				teleportClusterName: "a.example.com",
-				kubeClusters: []*types.KubernetesCluster{
-					{
-						Name: "dev",
+				kubeClusters: []types.KubeCluster{
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "dev",
+						},
 					},
-					{
-						Name: "prod",
+					&types.KubernetesClusterV3{
+						Metadata: types.Metadata{
+							Name: "prod",
+						},
 					},
 				},
 				credentials: creds,
@@ -1919,7 +1937,7 @@ func makeTestSSHNode(t *testing.T, authAddr *utils.NetAddr, opts ...testServerOp
 	cfg.DataDir = t.TempDir()
 
 	cfg.AuthServers = []utils.NetAddr{*authAddr}
-	cfg.Token = staticToken
+	cfg.SetToken(staticToken)
 	cfg.Auth.Enabled = false
 	cfg.Proxy.Enabled = false
 	cfg.SSH.Enabled = true
@@ -1942,13 +1960,8 @@ func makeTestSSHNode(t *testing.T, authAddr *utils.NetAddr, opts ...testServerOp
 	})
 
 	// Wait for node to become ready.
-	eventCh := make(chan service.Event, 1)
-	node.WaitForEvent(node.ExitContext(), service.NodeSSHReady, eventCh)
-	select {
-	case <-eventCh:
-	case <-time.After(10 * time.Second):
-		t.Fatal("node didn't start after 10s")
-	}
+	node.WaitForEventTimeout(10*time.Second, service.NodeSSHReady)
+	require.NoError(t, err, "node didn't start after 10s")
 
 	return node
 }
@@ -2000,15 +2013,10 @@ func makeTestServers(t *testing.T, opts ...testServerOptFunc) (auth *service.Tel
 	})
 
 	// Wait for proxy to become ready.
-	eventCh := make(chan service.Event, 1)
-	auth.WaitForEvent(auth.ExitContext(), service.AuthTLSReady, eventCh)
-	select {
-	case <-eventCh:
-	case <-time.After(30 * time.Second):
-		// in reality, the auth server should start *much* sooner than this.  we use a very large
-		// timeout here because this isn't the kind of problem that this test is meant to catch.
-		t.Fatal("auth server didn't start after 30s")
-	}
+	_, err = auth.WaitForEventTimeout(30*time.Second, service.AuthTLSReady)
+	// in reality, the auth server should start *much* sooner than this.  we use a very large
+	// timeout here because this isn't the kind of problem that this test is meant to catch.
+	require.NoError(t, err, "auth server didn't start after 30s")
 
 	authAddr, err := auth.AuthAddr()
 	require.NoError(t, err)
@@ -2020,7 +2028,7 @@ func makeTestServers(t *testing.T, opts ...testServerOptFunc) (auth *service.Tel
 	cfg.DataDir = t.TempDir()
 
 	cfg.AuthServers = []utils.NetAddr{*authAddr}
-	cfg.Token = staticToken
+	cfg.SetToken(staticToken)
 	cfg.SSH.Enabled = false
 	cfg.Auth.Enabled = false
 	cfg.Proxy.Enabled = true
@@ -2040,12 +2048,8 @@ func makeTestServers(t *testing.T, opts ...testServerOptFunc) (auth *service.Tel
 	})
 
 	// Wait for proxy to become ready.
-	proxy.WaitForEvent(proxy.ExitContext(), service.ProxyWebServerReady, eventCh)
-	select {
-	case <-eventCh:
-	case <-time.After(10 * time.Second):
-		t.Fatal("proxy web server didn't start after 10s")
-	}
+	_, err = proxy.WaitForEventTimeout(10*time.Second, service.ProxyWebServerReady)
+	require.NoError(t, err, "proxy web server didn't start after 10s")
 
 	return auth, proxy
 }
@@ -2260,7 +2264,8 @@ func TestSerializeDatabases(t *testing.T) {
         "elasticache": {},
         "secret_store": {},
         "memorydb": {}
-      }
+      },
+      "azure": {}
     }
   }]
 	`
@@ -2745,22 +2750,32 @@ func TestSerializeKubeClusters(t *testing.T) {
 		}
 	]
 	`
-
-	clusters := []*types.KubernetesCluster{
-		{
+	c1, err := types.NewKubernetesClusterV3(
+		types.Metadata{
 			Name: "cluster1",
-			StaticLabels: map[string]string{
+			Labels: map[string]string{
 				"foo": "bar",
 			},
+		},
+		types.KubernetesClusterSpecV3{
 			DynamicLabels: map[string]types.CommandLabelV2{
 				"cmd": {
 					Result: "result",
 				},
 			},
 		},
-		{
+	)
+	require.NoError(t, err)
+	c2, err := types.NewKubernetesClusterV3(
+		types.Metadata{
 			Name: "cluster2",
 		},
+		types.KubernetesClusterSpecV3{},
+	)
+
+	require.NoError(t, err)
+	clusters := []types.KubeCluster{
+		c1, c2,
 	}
 	testSerialization(t, expected, func(f string) (string, error) {
 		return serializeKubeClusters(clusters, "cluster1", f)
@@ -3002,4 +3017,88 @@ func TestExportingTraces(t *testing.T) {
 			tt.spanAssertion(t, collector.Spans())
 		})
 	}
+}
+
+func TestShowSessions(t *testing.T) {
+	expected := `[
+    {
+        "ei": 0,
+        "event": "",
+        "uid": "someID1",
+        "time": "0001-01-01T00:00:00Z",
+        "sid": "",
+        "server_id": "",
+        "enhanced_recording": false,
+        "interactive": false,
+        "participants": [
+            "someParticipant"
+        ],
+        "session_start": "0001-01-01T00:00:00Z",
+        "session_stop": "0001-01-01T00:00:00Z"
+    },
+    {
+        "ei": 0,
+        "event": "",
+        "uid": "someID2",
+        "time": "0001-01-01T00:00:00Z",
+        "sid": "",
+        "server_id": "",
+        "enhanced_recording": false,
+        "interactive": false,
+        "participants": [
+            "someParticipant"
+        ],
+        "session_start": "0001-01-01T00:00:00Z",
+        "session_stop": "0001-01-01T00:00:00Z"
+    },
+    {
+        "ei": 0,
+        "event": "",
+        "uid": "someID3",
+        "time": "0001-01-01T00:00:00Z",
+        "sid": "",
+        "windows_desktop_service": "",
+        "desktop_addr": "",
+        "windows_domain": "",
+        "windows_user": "",
+        "desktop_labels": null,
+        "session_start": "0001-01-01T00:00:00Z",
+        "session_stop": "0001-01-01T00:00:00Z",
+        "desktop_name": "",
+        "recorded": false,
+        "participants": [
+            "someParticipant"
+        ]
+    }
+]`
+	sessions := []events.AuditEvent{
+		&events.SessionEnd{
+			Metadata: events.Metadata{
+				ID: "someID1",
+			},
+			StartTime:    time.Time{},
+			EndTime:      time.Time{},
+			Participants: []string{"someParticipant"},
+		},
+		&events.SessionEnd{
+			Metadata: events.Metadata{
+				ID: "someID2",
+			},
+			StartTime:    time.Time{},
+			EndTime:      time.Time{},
+			Participants: []string{"someParticipant"},
+		},
+		&events.WindowsDesktopSessionEnd{
+			Metadata: events.Metadata{
+				ID: "someID3",
+			},
+			StartTime:    time.Time{},
+			EndTime:      time.Time{},
+			Participants: []string{"someParticipant"},
+		},
+	}
+	var buf bytes.Buffer
+	err := common.ShowSessions(sessions, teleport.JSON, &buf)
+	require.NoError(t, err)
+	require.Equal(t, expected, buf.String())
 }

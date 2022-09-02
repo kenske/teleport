@@ -40,6 +40,7 @@ import (
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	apievents "github.com/gravitational/teleport/api/types/events"
+	"github.com/gravitational/teleport/api/types/installers"
 	"github.com/gravitational/teleport/api/utils/sshutils"
 	"github.com/gravitational/teleport/lib/auth/keystore"
 	"github.com/gravitational/teleport/lib/auth/native"
@@ -339,14 +340,17 @@ func TestAuthenticateSSHUser(t *testing.T) {
 
 	// Register a kubernetes cluster to verify the defaulting logic in TLS cert
 	// generation.
-	_, err = s.a.UpsertKubeServiceV2(ctx, &types.ServerV2{
-		Metadata: types.Metadata{Name: "kube-service"},
-		Kind:     types.KindKubeService,
-		Version:  types.V2,
-		Spec: types.ServerSpecV2{
-			KubernetesClusters: []*types.KubernetesCluster{{Name: "root-kube-cluster"}},
+	kubeCluster, err := types.NewKubernetesClusterV3(
+		types.Metadata{
+			Name: "root-kube-cluster",
 		},
-	})
+		types.KubernetesClusterSpecV3{},
+	)
+	require.NoError(t, err)
+
+	kubeServer, err := types.NewKubernetesServerV3FromCluster(kubeCluster, "host", "uuid")
+	require.NoError(t, err)
+	_, err = s.a.UpsertKubernetesServer(ctx, kubeServer)
 	require.NoError(t, err)
 
 	// Login specifying a valid kube cluster. It should appear in the TLS cert.
@@ -540,7 +544,7 @@ func TestUserLock(t *testing.T) {
 		require.Error(t, err)
 	}
 
-	user, err := s.a.Identity.GetUser(username, false)
+	user, err := s.a.GetUser(username, false)
 	require.NoError(t, err)
 	require.True(t, user.GetStatus().IsLocked)
 
@@ -566,7 +570,9 @@ func TestTokensCRUD(t *testing.T) {
 	require.Empty(t, btokens, 0)
 
 	// generate persistent token
-	tokenName, err := s.a.GenerateToken(ctx, &proto.GenerateTokenRequest{Roles: types.SystemRoles{types.RoleNode}})
+	tokenName, err := s.a.GenerateToken(ctx, &proto.GenerateTokenRequest{
+		Roles: types.SystemRoles{types.RoleNode},
+	})
 	require.NoError(t, err)
 	require.Len(t, tokenName, 2*TokenLenBytes)
 	tokens, err := s.a.GetTokens(ctx)
@@ -580,9 +586,31 @@ func TestTokensCRUD(t *testing.T) {
 	require.True(t, roles.Include(types.RoleNode))
 	require.False(t, roles.Include(types.RoleProxy))
 
+	// generate persistent token with defined TTL
+	desiredTTL := 6 * time.Hour
+	tokenName, err = s.a.GenerateToken(ctx, &proto.GenerateTokenRequest{
+		Roles: types.SystemRoles{types.RoleNode},
+		TTL:   proto.Duration(desiredTTL),
+	})
+	require.NoError(t, err)
+	token, err := s.a.GetToken(ctx, tokenName)
+	require.NoError(t, err)
+	actualTTL := time.Until(token.Expiry())
+	diff := actualTTL - desiredTTL
+	require.True(
+		t,
+		diff <= time.Minute && diff >= (-1*time.Minute),
+		"Token TTL should be within one minute of the desired TTL",
+	)
+
+	require.NoError(t, s.a.DeleteToken(ctx, tokenName))
+
 	// generate predefined token
 	customToken := "custom-token"
-	tokenName, err = s.a.GenerateToken(ctx, &proto.GenerateTokenRequest{Roles: types.SystemRoles{types.RoleNode}, Token: customToken})
+	tokenName, err = s.a.GenerateToken(ctx, &proto.GenerateTokenRequest{
+		Roles: types.SystemRoles{types.RoleNode},
+		Token: customToken,
+	})
 	require.NoError(t, err)
 	require.Equal(t, tokenName, customToken)
 
@@ -939,7 +967,9 @@ func TestTrustedClusterCRUDEventEmitted(t *testing.T) {
 		ReverseTunnelAddress: "b",
 	})
 	require.NoError(t, err)
-	_, err = s.a.Presence.UpsertTrustedCluster(ctx, tc)
+	// use the UpsertTrustedCluster in Uncached as we just want the resource in
+	// the backend, we don't want to actually connect
+	_, err = s.a.Services.UpsertTrustedCluster(ctx, tc)
 	require.NoError(t, err)
 
 	require.NoError(t, s.a.UpsertCertAuthority(suite.NewTestCA(types.UserCA, "test")))
@@ -1369,7 +1399,7 @@ func TestDeleteMFADeviceSync(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			token, err := srv.Auth().newUserToken(tc.tokenReq)
 			require.NoError(t, err)
-			_, err = srv.Auth().Identity.CreateUserToken(ctx, token)
+			_, err = srv.Auth().CreateUserToken(ctx, token)
 			require.NoError(t, err)
 
 			// Delete the TOTP device.
@@ -1382,7 +1412,7 @@ func TestDeleteMFADeviceSync(t *testing.T) {
 	}
 
 	// Check it's been deleted.
-	devs, err := srv.Auth().Identity.GetMFADevices(ctx, username, false)
+	devs, err := srv.Auth().Services.GetMFADevices(ctx, username, false)
 	require.NoError(t, err)
 	compareDevices(t, false /* ignoreUpdateAndCounter */, devs, webDev2.MFA, totpDev2.MFA)
 
@@ -1461,7 +1491,7 @@ func TestDeleteMFADeviceSync_WithErrors(t *testing.T) {
 			if tc.tokenRequest != nil {
 				token, err := srv.Auth().newUserToken(*tc.tokenRequest)
 				require.NoError(t, err)
-				_, err = srv.Auth().Identity.CreateUserToken(context.Background(), token)
+				_, err = srv.Auth().CreateUserToken(context.Background(), token)
 				require.NoError(t, err)
 
 				tokenID = token.GetName()
@@ -1586,7 +1616,7 @@ func TestDeleteMFADeviceSync_lastDevice(t *testing.T) {
 				Type: UserTokenTypeRecoveryApproved,
 			})
 			require.NoError(t, err)
-			_, err = srv.Auth().Identity.CreateUserToken(context.Background(), token)
+			_, err = srv.Auth().CreateUserToken(context.Background(), token)
 			require.NoError(t, err)
 
 			// Delete the device.
@@ -1652,7 +1682,7 @@ func TestAddMFADeviceSync(t *testing.T) {
 					Type: UserTokenTypeResetPassword,
 				})
 				require.NoError(t, err)
-				_, err = srv.Auth().Identity.CreateUserToken(ctx, token)
+				_, err = srv.Auth().CreateUserToken(ctx, token)
 				require.NoError(t, err)
 
 				return &proto.AddMFADeviceSyncRequest{
@@ -1801,7 +1831,7 @@ func TestGetMFADevices_WithToken(t *testing.T) {
 			if tc.tokenRequest != nil {
 				token, err := srv.Auth().newUserToken(*tc.tokenRequest)
 				require.NoError(t, err)
-				_, err = srv.Auth().Identity.CreateUserToken(context.Background(), token)
+				_, err = srv.Auth().CreateUserToken(context.Background(), token)
 				require.NoError(t, err)
 
 				tokenID = token.GetName()
@@ -1992,7 +2022,7 @@ func TestFilterResources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			srv := &Server{cache: tt.cache}
+			srv := &Server{Cache: tt.cache}
 
 			err := srv.IterateResources(ctx, proto.ListResourcesRequest{
 				ResourceType: types.KindNode,
@@ -2074,4 +2104,51 @@ func TestEnforcerGetLicenseCheckResult(t *testing.T) {
 	heartbeat, err := s.a.GetLicenseCheckResult(ctx)
 	require.NoError(t, err)
 	require.Equal(t, expected, heartbeat.Spec.Notifications)
+}
+
+func TestInstallerCRUD(t *testing.T) {
+	t.Parallel()
+	s := newAuthSuite(t)
+	ctx := context.Background()
+
+	var inst types.Installer
+	var err error
+	contents := "#! just some script contents"
+	inst, err = types.NewInstallerV1(installers.InstallerScriptName, contents)
+	require.NoError(t, err)
+
+	require.NoError(t, s.a.SetInstaller(ctx, inst))
+
+	inst, err = s.a.GetInstaller(ctx, installers.InstallerScriptName)
+	require.NoError(t, err)
+	require.Equal(t, contents, inst.GetScript())
+
+	newContents := "nothing useful here"
+	newInstaller, err := types.NewInstallerV1("other-script", newContents)
+	require.NoError(t, err)
+	require.NoError(t, s.a.SetInstaller(ctx, newInstaller))
+
+	newInst, err := s.a.GetInstaller(ctx, "other-script")
+	require.NoError(t, err)
+	require.Equal(t, newContents, newInst.GetScript())
+
+	instcoll, err := s.a.GetInstallers(ctx)
+	require.NoError(t, err)
+	var instScripts []string
+	for _, inst := range instcoll {
+		instScripts = append(instScripts, inst.GetScript())
+	}
+
+	require.ElementsMatch(t,
+		[]string{inst.GetScript(), newInst.GetScript()},
+		instScripts,
+	)
+
+	err = s.a.DeleteInstaller(ctx, installers.InstallerScriptName)
+	require.NoError(t, err)
+
+	_, err = s.a.GetInstaller(ctx, installers.InstallerScriptName)
+	require.Error(t, err)
+	require.True(t, trace.IsNotFound(err))
+
 }

@@ -26,13 +26,13 @@ package auth
 import (
 	"context"
 
+	"github.com/gravitational/trace"
+
 	"github.com/gravitational/teleport/api/constants"
 	"github.com/gravitational/teleport/api/types"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/services"
-
-	"github.com/gravitational/trace"
 )
 
 // CreateUser inserts a new user entry in a backend.
@@ -45,9 +45,9 @@ func (s *Server) CreateUser(ctx context.Context, user types.User) error {
 	}
 
 	// TODO: ctx is being swallowed here because the current implementation of
-	// s.Identity.CreateUser is an older implementation that does not curently
+	// s.Uncached.CreateUser is an older implementation that does not curently
 	// accept a context.
-	if err := s.Identity.CreateUser(user); err != nil {
+	if err := s.Services.CreateUser(user); err != nil {
 		return trace.Wrap(err)
 	}
 
@@ -154,7 +154,7 @@ func (s *Server) UpsertUser(user types.User) error {
 // CompareAndSwapUser updates a user but fails if the value on the backend does
 // not match the expected value.
 func (s *Server) CompareAndSwapUser(ctx context.Context, new, existing types.User) error {
-	err := s.Identity.CompareAndSwapUser(ctx, new, existing)
+	err := s.Services.CompareAndSwapUser(ctx, new, existing)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -205,7 +205,7 @@ func (s *Server) DeleteUser(ctx context.Context, username string) error {
 			return trace.Wrap(err)
 		}
 	} else {
-		if err := s.Access.DeleteRole(ctx, role.GetName()); err != nil {
+		if err := s.DeleteRole(ctx, role.GetName()); err != nil {
 			if !trace.IsNotFound(err) {
 				return trace.Wrap(err)
 			}

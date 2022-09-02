@@ -38,6 +38,7 @@ import (
 	"github.com/gravitational/teleport/api/constants"
 	tracessh "github.com/gravitational/teleport/api/observability/tracing/ssh"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/utils/keys"
 	libclient "github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/client/db/dbcmd"
 	"github.com/gravitational/teleport/lib/defaults"
@@ -187,7 +188,8 @@ func sshProxy(ctx context.Context, tc *libclient.TeleportClient, sp sshProxyPara
 	}
 	defer upstreamConn.Close()
 
-	client, err := makeSSHClient(ctx, upstreamConn, upstreamConn.RemoteAddr().String(), &ssh.ClientConfig{
+	remoteProxyAddr := net.JoinHostPort(sp.proxyHost, sp.proxyPort)
+	client, err := makeSSHClient(ctx, upstreamConn, remoteProxyAddr, &ssh.ClientConfig{
 		User: tc.HostLogin,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeysCallback(tc.LocalAgent().Signers),
@@ -209,13 +211,13 @@ func sshProxy(ctx context.Context, tc *libclient.TeleportClient, sp sshProxyPara
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	err = agent.RequestAgentForwarding(sess)
+	err = agent.RequestAgentForwarding(sess.Session)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
 	sshUserHost := fmt.Sprintf("%s:%s", sp.targetHost, sp.targetPort)
-	if err = sess.RequestSubsystem(proxySubsystemName(sshUserHost, sp.clusterName)); err != nil {
+	if err = sess.RequestSubsystem(ctx, proxySubsystemName(sshUserHost, sp.clusterName)); err != nil {
 		return trace.Wrap(err)
 	}
 	if err := proxySession(ctx, sess); err != nil {
@@ -270,7 +272,7 @@ func makeSSHClient(ctx context.Context, conn net.Conn, addr string, cfg *ssh.Cli
 	return tracessh.NewClient(cc, chs, reqs), nil
 }
 
-func proxySession(ctx context.Context, sess *ssh.Session) error {
+func proxySession(ctx context.Context, sess *tracessh.Session) error {
 	stdout, err := sess.StdoutPipe()
 	if err != nil {
 		return trace.Wrap(err)
@@ -361,6 +363,7 @@ func onProxyCommandDB(cf *CLIConf) error {
 		routeToDatabase:  routeToDatabase,
 		listener:         listener,
 		localProxyTunnel: cf.LocalProxyTunnel,
+		rootClusterName:  rootCluster,
 	})
 	if err != nil {
 		return trace.Wrap(err)
@@ -420,12 +423,14 @@ func onProxyCommandDB(cf *CLIConf) error {
 }
 
 type localProxyOpts struct {
-	proxyAddr string
-	listener  net.Listener
-	protocols []alpncommon.Protocol
-	insecure  bool
-	certFile  string
-	keyFile   string
+	proxyAddr               string
+	listener                net.Listener
+	protocols               []alpncommon.Protocol
+	insecure                bool
+	certFile                string
+	keyFile                 string
+	rootCAs                 *x509.CertPool
+	alpnConnUpgradeRequired bool
 }
 
 // protocol returns the first protocol or string if configuration doesn't contain any protocols.
@@ -449,14 +454,22 @@ func mkLocalProxy(ctx context.Context, opts localProxyOpts) (*alpnproxy.LocalPro
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+
+	protocols := append([]alpncommon.Protocol{alpnProtocol}, opts.protocols...)
+	if alpncommon.HasPingSupport(alpnProtocol) {
+		protocols = append(alpncommon.ProtocolsWithPing(alpnProtocol), protocols...)
+	}
+
 	lp, err := alpnproxy.NewLocalProxy(alpnproxy.LocalProxyConfig{
-		InsecureSkipVerify: opts.insecure,
-		RemoteProxyAddr:    opts.proxyAddr,
-		Protocols:          append([]alpncommon.Protocol{alpnProtocol}, opts.protocols...),
-		Listener:           opts.listener,
-		ParentContext:      ctx,
-		SNI:                address.Host(),
-		Certs:              certs,
+		InsecureSkipVerify:      opts.insecure,
+		RemoteProxyAddr:         opts.proxyAddr,
+		Protocols:               protocols,
+		Listener:                opts.listener,
+		ParentContext:           ctx,
+		SNI:                     address.Host(),
+		Certs:                   certs,
+		RootCAs:                 opts.rootCAs,
+		ALPNConnUpgradeRequired: opts.alpnConnUpgradeRequired,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -471,7 +484,7 @@ func mkLocalProxyCerts(certFile, keyFile string) ([]tls.Certificate, error) {
 	if (certFile == "" && keyFile != "") || (certFile != "" && keyFile == "") {
 		return nil, trace.BadParameter("both --cert-file and --key-file are required")
 	}
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	cert, err := keys.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -596,16 +609,17 @@ func loadAppCertificate(tc *libclient.TeleportClient, appName string) (tls.Certi
 	if err != nil {
 		return tls.Certificate{}, trace.Wrap(err)
 	}
-	cc, ok := key.AppTLSCerts[appName]
+	cert, ok := key.AppTLSCerts[appName]
 	if !ok {
 		return tls.Certificate{}, trace.NotFound("please login into the application first. 'tsh app login'")
 	}
-	cert, err := tls.X509KeyPair(cc, key.Priv)
+
+	tlsCert, err := key.TLSCertificate(cert)
 	if err != nil {
 		return tls.Certificate{}, trace.Wrap(err)
 	}
 
-	expiresAt, err := getTLSCertExpireTime(cert)
+	expiresAt, err := getTLSCertExpireTime(tlsCert)
 	if err != nil {
 		return tls.Certificate{}, trace.WrapWithMessage(err, "invalid certificate - please login to the application again. 'tsh app login'")
 	}
@@ -614,7 +628,7 @@ func loadAppCertificate(tc *libclient.TeleportClient, appName string) (tls.Certi
 			"application %s certificate has expired, please re-login to the app using 'tsh app login'",
 			appName)
 	}
-	return cert, nil
+	return tlsCert, nil
 }
 
 // getTLSCertExpireTime returns the certificate NotAfter time.
